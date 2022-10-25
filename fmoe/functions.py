@@ -2,6 +2,7 @@ r"""
 The fmoe.functions module contains functions that are directly warped up from
 C/CUDA functions to complete distributed communication, computation and gradient
 computation.
+分布式通信、计算和梯度计算
 """
 
 import torch
@@ -12,12 +13,14 @@ from .utils import get_torch_default_comm
 
 _moe_group = None
 
-
+# 判断多显卡之间是否能够进行数据交互
 def ensure_comm(t, comm):
+    # 如果comm为None，则赋默认值
     if comm is None:
         comm = get_torch_default_comm()
     global _moe_group
     _moe_group = comm
+    # NCCL提供多显卡之间直接进行数据交互
     fmoe_cuda.ensure_nccl(comm, t)
 
 
@@ -26,6 +29,10 @@ def get_moe_group():
 
 
 def count_by_gate(gate, num_expert, world_size, require_pos=True):
+    # gate 门
+    # num_expert 每张卡拥有的专家网络数目
+    # world_size 运行网络的显卡数目，例如两台机器一起训练则 world_size=2
+    # 将数据分发到n_expert * world_size个expert
     with torch.no_grad():
         local_expert_count = torch.zeros(
             num_expert * world_size, device=gate.device, dtype=torch.int32
@@ -34,6 +41,7 @@ def count_by_gate(gate, num_expert, world_size, require_pos=True):
         local_expert_count = local_expert_count.long()
 
         if world_size > 1:
+            # global count接收数据
             global_expert_count = fmoe_cuda.expert_exchange(
                 local_expert_count, num_expert, world_size
             )
@@ -46,19 +54,24 @@ def count_by_gate(gate, num_expert, world_size, require_pos=True):
             pos_size = lec_cum[-1].item()
             pos = torch.empty((pos_size,), device=gate.device, dtype=torch.long)
             fmoe_cuda.assign_pos(lec_cum, gate, pos)
+    # 返回地址、本地expert数量、全局expert数量
     return pos, local_expert_count, global_expert_count
 
 
 def prepare_forward(gate, num_expert, world_size):
     r"""
     Prepare necessary information from gate output for MoE computation.
-
+    为MoE计算准备来自门输出的必要信息。
     Args:
         gate: a 1-d Long Tensor representing the target expert of each input
         sample.
         num_expert: number of experts on each worker.
         world_size: number of workers that hold different experts.
         comm: the communicator of all workers in the expert-parallel group.
+        gate: 代表每个输入样本的目标专家的1-d Long Tensor。
+        num_expert: 每个worker上的expert数量。
+        world_size: 持有不同expert的worker的数量。
+        comm:专家并行组中所有worker间的通讯器。
     """
     pos, local_expert_count, global_expert_count = count_by_gate(gate, 
             num_expert, world_size)
@@ -95,6 +108,9 @@ class MOEScatter(Function):
     Scatter input samples from [batch x sequences] to contiguous alone experts.
     If `world_size` is greater than 1, the samples will first be locally
     scattered, and then exchanged across workers.
+
+    将[batch x sequences]中的输入样本分散到连续的单独专家。
+    如果“world_size”大于1,样本首先在本地被分散,然后在worker之间进行交换
     """
 
     @staticmethod
@@ -145,6 +161,10 @@ class MOEGather(Function):
     r"""
     Gather output samples from contiguous alone experts back to [batch x
     sequences]. Works symmetrically with MOEScatter.
+
+    从连续的单独专家那里收集输出样本，回到[batch x
+    sequences]
+
     """
 
     @staticmethod
@@ -196,6 +216,7 @@ class MOEGather(Function):
 class AllGather(Function):
     r"""
     A wrapper for the All-Gather function to support auto-differentiation.
+    一个支持自动区分的All-Gather函数的封装器。
     """
 
     @staticmethod
@@ -216,6 +237,7 @@ class AllGather(Function):
 class Slice(Function):
     r"""
     A wrapper for the Slice function to support auto-differentiation.
+    Slice函数的一个封装器, 支持自动区分。
     """
 
     @staticmethod

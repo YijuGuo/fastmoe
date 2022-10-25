@@ -12,14 +12,22 @@ class DistributedGroupedDataParallel(nn.Module):
     A customized DDP module to support different all-reduce regions in the
     model.  The all-reduce region is defined as an attribution `dp_comm` in the
     weight object.
+    一个定制的DDP模块，支持模型中不同的全还原区域。
+    全还原区域被定义为权重对象中的一个属性`dp_comm'。
     The grads of the weights are identified to be reduced in different groups
     according to the weigths' `dp_comm` attribute.
     If it is set to `dp`, it will only be reduced across the data-parallel
     groups, which means that in the model parallel group, they are not
     synchronized.
+
+    根据权重的 "dp_comm "属性，权重的等级被确定为不同组别中的减数。 根据权重的 "dp_comm "属性。 如果它被设置为 "dp"，它将只在数据并行组中被减少
+
     If it is set to `world`, the gradients is synchronized across all workers,
     regardless their model or data parallel group. This is extremely useful for
     shared layers like the gate.
+    如果它被设置为`world'，梯度就会在所有工作者之间同步，
+    不管他们的模型或数据并行组。
+    这对于像门这样的共享层来说是非常有用的。
     """
 
     def __init__(

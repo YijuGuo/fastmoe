@@ -18,6 +18,8 @@ def mark_module_parallel_comm(module, comm):
     r"""
     Mark all parameters in `module` as doing data parallel in `comm`, where
     `comm` may be one of `'world', 'dp', 'none'`.
+
+    将`module`中的所有参数标记为在`comm`中进行数据并行
     """
     for p in module.parameters():
         setattr(p, "dp_comm", comm)
@@ -34,11 +36,26 @@ def _fmoe_general_global_forward(inp, gate, expert_fn, num_expert, world_size, *
     * Gather the output features of experts back, and reorder them as sentences.
     Intermediate results like expert counts are hidden from users by this
     function.
+
+    * 计算从每个worker到每个expert的token的数量。
+    * 将features发送到它们的target position,
+       以便每个专家的输入特征在内存中是连续的。
+    * 使用`expert_fn'进行专家的 forward computation。
+    * 将专家的输出特征收集回来，并将其作为句子重新排序。
+      中间的结果，如专家的数量，通过这个函数对用户隐藏。函数隐藏起来。
+
     """
     (
         pos,
         local_expert_count,
-        global_expert_count,
+        # 拥有n_expert * world_size个数据的Tensor，用于表示有多少数据接收。
+        global_expert_count, 
+        # 拥有n_expert * world_size个数据的Tensor，用于表示有多少数据发送
+        # global_gather根据global_count将x的数据收集到n_expert * world_size个expert，
+        # 然后根据local_count接收数据
+        # 其中expert是用户定义的专家网络，
+        # n_expert是指每张卡拥有的专家网络数目
+        # world_size是指运行网络的显卡数目。
         fwd_expert_count,
         fwd_batch_size,
     ) = prepare_forward(gate, num_expert, world_size)
@@ -103,16 +120,29 @@ class FMoE(nn.Module):
     `num_expert` expert modules.
     """
 
+    """
+    num_expert: 代表每个worker对应的expert数量
+    world_size: 表示worker的总数, 即机器的数量
+    slice_group: torch的通信组, 表示特定的模型并行应用于整个组，
+    组内的工作者持有相同的输入特征副本，并需要相同的输出副本
+    对于每个工作者, FMoE只计算input batch的某一片的输出
+    并将计算后的输出全部收集起来
+    top_k: 代表每个token要对应的专家的数量
+    gate: 门类, 可以在`fmoe.gates`中找到,包含switch, swipe, gshard等gates
+    expert: 模块类, 用于生成num_expert模块
+    
+    """
+
     def __init__(
         self,
-        num_expert=32,
+        num_expert=32, 
         d_model=1024,
         world_size=1,
-        mp_group=None,  # being deprecated
+        mp_group=None,  # being deprecated 被弃用
         slice_group=None,
         moe_group=None,
         top_k=2,
-        gate=NaiveGate,
+        gate=NaiveGate, # 选择对应的gate
         expert=None,
         gate_hook=None,
         mask=None,
@@ -121,14 +151,19 @@ class FMoE(nn.Module):
         super().__init__()
         self.num_expert = num_expert
         self.d_model = d_model
+        # world_size进程, 实际就是机器的个数, 例如两台机器一起训练的话, world_size就设置为2
         self.world_size = world_size
 
         self.slice_group = slice_group
+        # mp_group = True，group被弃用，弹出警告
         if mp_group is not None:
             print("[Warning] mp_group is being deprecated")
             self.slice_group = mp_group
+        # 没有slice_group
         if self.slice_group is None:
             self.slice_size = 1
+            # rank: 区分主节点和从节点的, 主节点为0, 剩余的为了1-(N-1), N = world_size
+            # 没有slice_group，只有一个主节点，设slice_rank = 0
             self.slice_rank = 0
         else:
             self.slice_size = self.slice_group.size()
@@ -155,6 +190,8 @@ class FMoE(nn.Module):
         r"""
         The default expert function which either calls the experts as a whole
         or as separate experts.
+
+        可以将专家当作整体调用或者调用单个专家
         """
         if self.experts_fused:
             return self.experts(inp, fwd_expert_count)
@@ -174,6 +211,8 @@ class FMoE(nn.Module):
         Automatically mark the data parallel comms of the parameters within the
         module. This can be typically called at the end of the __init__ function
         in child classes.
+        自动标记模块内的参数的数据并行通信。
+        这通常可以在子类中的__init__函数的末尾调用。
         """
         if self.experts is not None:
             comm = expert_dp_comm
@@ -189,6 +228,9 @@ class FMoE(nn.Module):
         The FMoE module first computes gate output, and then conduct MoE forward
         according to the gate.  The score of the selected gate given by the
         expert is multiplied to the experts' output tensors as a weight.
+
+        FMoE模块首先计算门的输出，然后根据门的情况进行MoE前进。 
+        专家给出的所选门的分数被乘以专家的输出张量作为权重。
         """
 
         moe_inp_batch_size = tree.flatten(
@@ -198,15 +240,18 @@ class FMoE(nn.Module):
             [batch_size == moe_inp_batch_size[0] for batch_size in moe_inp_batch_size]
         ), "MoE inputs must have the same batch size"
 
+        # 显卡数量大于1
         if self.world_size > 1:
-
+            
             def ensure_comm_func(tensor):
+                # 判断多显卡之间是否可以进行交互
                 ensure_comm(tensor, self.moe_group)
 
             tree.map_structure(ensure_comm_func, moe_inp)
         if self.slice_size > 1:
 
             def slice_func(tensor):
+                # 通过slice_func 得到一个Slice类
                 return Slice.apply(
                     tensor, self.slice_rank, self.slice_size, self.slice_group
                 )

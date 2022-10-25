@@ -12,6 +12,7 @@ import fmoe_cuda
 class MOELinear(Function):
     r"""
     Computes linear operators within one GPU on different experts simutaneously.
+    在一个GPU内同时计算不同专家的线性算子
     """
 
     @staticmethod
@@ -36,13 +37,17 @@ class MOELinear(Function):
         return grad_inp_buf, None, grad_weight, grad_bias
 
 
-
+# 并行方式同时计算多个expert
 class FMoELinear(nn.Module):
     r"""
     A linear layer that contains multiple experts.
     As multiple experts can be placed on the same worker, the computation can be
     performed in parallel to increase the performance.
     The FMoELinear module provides such function.
+
+    一个包含多个专家的线性层。
+    由于多个专家可以被放在同一个工作器上，因此计算可以以并行方式进行，以提高性能。
+    FMoELinear模块提供了这样的功能。
     """
 
     def __init__(
