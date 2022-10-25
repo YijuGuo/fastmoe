@@ -24,6 +24,7 @@ parser.add_argument('--dataset', type=str, default='wt103',
                     help='dataset name')
 parser.add_argument('--n_layer', type=int, default=12,
                     help='number of total layers')
+                    # 参数具体的含义？
 parser.add_argument('--n_head', type=int, default=10,
                     help='number of heads')
 parser.add_argument('--d_head', type=int, default=50,
@@ -68,24 +69,34 @@ parser.add_argument('--lr_min', type=float, default=0.0,
                     help='minimum learning rate during annealing')
 parser.add_argument('--clip', type=float, default=0.25,
                     help='gradient clipping')
+                    # 梯度裁剪，定义最小裁剪值和最大裁剪值两个量
+                    # 只要某个梯度超过这个阈值，我们将该梯度裁剪到最大阈值
+                    # 如果梯度小于下限，那么我们也将其裁剪到最小阈值
 parser.add_argument('--clip_nonemb', action='store_true',
                     help='only clip the gradient of non-embedding params')
+                    # 只剪切非embedding参数的梯度
 parser.add_argument('--max_step', type=int, default=100000,
                     help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=60,
                     help='batch size')
 parser.add_argument('--batch_chunk', type=int, default=1,
                     help='split batch into chunks to save memory')
+                    #将批处理分成若干块以节省内存
 parser.add_argument('--tgt_len', type=int, default=70,
                     help='number of tokens to predict')
 parser.add_argument('--eval_tgt_len', type=int, default=50,
                     help='number of tokens to predict for evaluation')
+                    #要预测的token的数量
 parser.add_argument('--ext_len', type=int, default=0,
                     help='length of the extended context')
+                    #延长的上下文的长度
 parser.add_argument('--mem_len', type=int, default=0,
                     help='length of the retained previous heads')
+                    # 保留以前的head的长度
 parser.add_argument('--not_tied', action='store_true',
                     help='do not tie the word embedding and softmax weights')
+                    # 不要把word embedding和softmax权重联系起来
+                    # ?
 parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', action='store_true',
@@ -94,8 +105,10 @@ parser.add_argument('--adaptive', action='store_true',
                     help='use adaptive softmax')
 parser.add_argument('--div_val', type=int, default=1,
                     help='divident value for adapative input and softmax')
+                    #适应性输入和softmax的二分值 ？
 parser.add_argument('--pre_lnorm', action='store_true',
                     help='apply LayerNorm to the input instead of the output')
+                    #将层规范应用于输入而不是输出
 parser.add_argument('--varlen', action='store_true',
                     help='use variable length')
 parser.add_argument('--multi_gpu', action='store_true',
@@ -104,29 +117,39 @@ parser.add_argument('--log-interval', type=int, default=200,
                     help='report interval')
 parser.add_argument('--eval-interval', type=int, default=4000,
                     help='evaluation interval')
+                    # 评价区间
 parser.add_argument('--work_dir', default='LM-TFM', type=str,
                     help='experiment directory.')
+                    # 实验目录
 parser.add_argument('--restart', action='store_true',
                     help='restart training from the saved checkpoint')
+                    # 从保存的检查点重新开始训练
 parser.add_argument('--restart_dir', type=str, default='',
                     help='restart dir')
 parser.add_argument('--debug', action='store_true',
                     help='run in debug mode (do not create exp dir)')
+                    # 在调试模式下运行（不要创建expir目录）
 parser.add_argument('--same_length', action='store_true',
                     help='use the same attn length for all tokens')
+                    # 对所有token 使用相同的attn长度
 parser.add_argument('--attn_type', type=int, default=0,
                     help='attention type. 0 for ours, 1 for Shaw et al,'
                     '2 for Vaswani et al, 3 for Al Rfou et al.')
 parser.add_argument('--clamp_len', type=int, default=-1,
                     help='use the same pos embeddings after clamp_len')
+                    # 在camp_len之后，使用相同的pos embeddings
 parser.add_argument('--eta_min', type=float, default=0.0,
                     help='min learning rate for cosine scheduler')
+                    # 余弦调度器的最小学习率
+                    # cosine scheduler
 parser.add_argument('--gpu0_bsz', type=int, default=-1,
                     help='batch size on gpu 0')
 parser.add_argument('--max_eval_steps', type=int, default=-1,
                     help='max eval steps')
+                    # 最大评估步骤
 parser.add_argument('--sample_softmax', type=int, default=-1,
                     help='number of samples in sampled softmax')
+                    # 采样的softmax的样本数
 parser.add_argument('--patience', type=int, default=0,
                     help='patience')
 parser.add_argument('--finetune_v2', action='store_true',
@@ -135,9 +158,11 @@ parser.add_argument('--finetune_v3', action='store_true',
                     help='finetune v3')
 parser.add_argument('--fp16', action='store_true',
                     help='Run in pseudo-fp16 mode (fp16 storage fp32 math).')
+                    # ? 
 parser.add_argument('--static-loss-scale', type=float, default=1,
                     help='Static loss scale, positive power of 2 values can '
                     'improve fp16 convergence.')
+                    # fp16?
 parser.add_argument('--dynamic-loss-scale', action='store_true',
                     help='Use dynamic loss scaling.  If supplied, this argument'
                     ' supersedes --static-loss-scale.')
@@ -149,6 +174,7 @@ parser.add_argument('--moe-top-k', type=int, default=2,
                     help='top_k experts in hard gate of moe')
 args = parser.parse_args()
 args.tied = not args.not_tied
+# assert 条件为True正常运行，条件为False触发异常
 assert args.moe_num_expert >= args.moe_top_k, "must have moe-num-expert >= moe-top_k"
 
 if args.d_embed < 0:
@@ -172,6 +198,14 @@ if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
 # Validate `--fp16` option
+# PyTorch Tensor的默认类型为单精度浮点数fp32
+# fp32存在的问题：
+# 第一模型尺寸大，训练的时候对显卡的显存要求高；
+# 第二模型训练速度慢；
+# 第三模型推理速度慢。
+# 解决方案就是使用低精度计算对模型进行优化。
+# 推理过程中，模型优化目前比较成熟的方案就是fp16量化和int8量化
+# 训练方面的方案就是混合精度训练，它的基本思想很简单: 精度减半(fp32→ fp16) ，训练时间减半
 if args.fp16:
     if not args.cuda:
         print('WARNING: --fp16 requires --cuda, ignoring --fp16 option')
@@ -188,13 +222,18 @@ device = torch.device('cuda' if args.cuda else 'cpu')
 ###############################################################################
 # Load data
 ###############################################################################
+# 数据处理：1.读取语料 2.构建词表 3.将token转换成index
 corpus = get_lm_corpus(args.data, args.dataset)
 ntokens = len(corpus.vocab)
 args.n_token = ntokens
 
 eval_batch_size = 10
+# 生成bach,分批训练
 tr_iter = corpus.get_iterator('train', args.batch_size, args.tgt_len,
     device=device, ext_len=args.ext_len)
+    # batchsize
+    # tgt_len: 表示所要预测的length 150
+    # ext_len
 va_iter = corpus.get_iterator('valid', eval_batch_size, args.eval_tgt_len,
     device=device, ext_len=args.ext_len)
 te_iter = corpus.get_iterator('test', eval_batch_size, args.eval_tgt_len,
@@ -280,6 +319,7 @@ if args.restart:
     model.apply(update_dropout)
     model.apply(update_dropatt)
 else:
+     # 创建transformer-xl模型： self-attention , feed-forward network，Relative Positional Embedding
     model = MemTransformerLM(ntokens, args.n_layer, args.n_head, args.d_model,
         args.d_head, args.d_inner, args.dropout, args.dropatt,
         tie_weight=args.tied, d_embed=args.d_embed, div_val=args.div_val,
@@ -290,6 +330,8 @@ else:
         moe=args.moe, moe_num_expert=args.moe_num_expert, moe_top_k=args.moe_top_k)
     model.apply(weights_init)
     model.word_emb.apply(weights_init) # ensure embedding init is not overridden by out_layer in case of weight sharing
+    # 在权重共享的情况下，确保嵌入init不被out_层覆盖
+# 优化器
 args.n_all_param = sum([p.nelement() for p in model.parameters()])
 args.n_nonemb_param = sum([p.nelement() for p in model.layers.parameters()])
 
@@ -304,6 +346,7 @@ if args.multi_gpu:
     else:
         para_model = nn.DataParallel(model, dim=1).to(device)
 else:
+    # model来源： model = MemTransformerLM(）
     para_model = model.to(device)
 
 #### optimizer

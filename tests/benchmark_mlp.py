@@ -20,7 +20,7 @@ class BruteForceMoE(nn.Module):
         d_model=1024,
         d_hidden=4096,
         world_size=1,
-        mp_group=None,
+        mp_group=None, #添加group
         activation=torch.nn.functional.gelu,
         gate=NaiveGate,
         top_k=1,
@@ -127,6 +127,7 @@ def benchmark_mlp(MOELayer, batch_size, in_feat, hidden_feat, num_expert, top_k)
 
 if __name__ == "__main__":
     if int(os.environ["WORLD_SIZE"]) > 1:
+        #使用 init_process_group 设置GPU 之间通信使用的后端和端口
         torch.distributed.init_process_group(backend="nccl")
         rank = torch.distributed.get_rank()
         world_size = torch.distributed.get_world_size()

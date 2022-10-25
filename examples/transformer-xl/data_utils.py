@@ -7,24 +7,32 @@ import torch
 
 from utils.vocabulary import Vocab
 
+# 训练数据整理成batch格式，数据的加载和预处理
 class LMOrderedIterator(object):
     def __init__(self, data, bsz, bptt, device='cpu', ext_len=None):
         """
             data -- LongTensor -- the LongTensor is strictly ordered
         """
+
+        # bsz = 60
         self.bsz = bsz
+        # bptt = 150
         self.bptt = bptt
+        # ext_len = 0 
         self.ext_len = ext_len if ext_len is not None else 0
 
         self.device = device
 
+        # n_step = 1720450
         # Work out how cleanly we can divide the dataset into bsz parts.
         self.n_step = data.size(0) // bsz
 
+        # 把data变成含有一亿个token的向量
         # Trim off any extra elements that wouldn't cleanly fit (remainders).
         data = data.narrow(0, 0, self.n_step * bsz)
 
         # Evenly divide the data across the bsz batches.
+        #变形为[1720450,60]
         self.data = data.view(bsz, -1).t().contiguous().to(device)
 
         # Number of mini-batches
@@ -32,12 +40,19 @@ class LMOrderedIterator(object):
 
     def get_batch(self, i, bptt=None):
         if bptt is None: bptt = self.bptt
+        # seq_len = bptt
         seq_len = min(bptt, self.data.size(0) - 1 - i)
 
+        # i最开始传入时，为0（152/300、146）
         end_idx = i + seq_len
+        #（152）
         beg_idx = max(0, i - self.ext_len)
 
+        # 对self.data截取，对第一个维度截取
+        # 对行进行截取，列向量不变
+        # [152,60]
         data = self.data[beg_idx:end_idx]
+        # [152,60]
         target = self.data[i+1:i+1+seq_len]
 
         return data, target, seq_len
@@ -47,14 +62,22 @@ class LMOrderedIterator(object):
             yield self.get_batch(i)
 
     def get_varlen_iter(self, start=0, std=5, min_len=5, max_deviation=3):
+        # max_len - 150+3*5
         max_len = self.bptt + max_deviation * std
         i = start
         while True:
+            # bptt = 150
             bptt = self.bptt if np.random.random() < 0.95 else self.bptt / 2.
+            # bptt = 152/148/146, std = 5
+            # random函数导致结果会不一样
             bptt = min(max_len, max(min_len, int(np.random.normal(bptt, std))))
             data, target, seq_len = self.get_batch(i, bptt)
+            # seq_len加到i上
             i += seq_len
+            # yield函数：跳出循环，送入模型中训练
+            # 从yield函数开始执行
             yield data, target, seq_len
+            # 判断i是否大于等于1000
             if i >= self.data.size(0) - 2:
                 break
 
@@ -177,9 +200,12 @@ class LMMultiFileIterator(LMShuffledIterator):
 
 class Corpus(object):
     def __init__(self, path, dataset, *args, **kwargs):
+        # 赋值到self.dataset 
         self.dataset = dataset
+        # 将Vocab类赋值给self.vocab
         self.vocab = Vocab(*args, **kwargs)
 
+        # 判断dataset
         if self.dataset in ['ptb', 'wt2', 'enwik8', 'text8']:
             self.vocab.count_file(os.path.join(path, 'train.txt'))
             self.vocab.count_file(os.path.join(path, 'valid.txt'))
@@ -192,7 +218,7 @@ class Corpus(object):
                 'training-monolingual.tokenized.shuffled', 'news.en-*')
             train_paths = glob.glob(train_path_pattern)
             # the vocab will load from file when build_vocab() is called
-
+        # 词典的构建
         self.vocab.build_vocab()
 
         if self.dataset in ['ptb', 'wt2', 'wt103']:
@@ -215,7 +241,8 @@ class Corpus(object):
                 os.path.join(path, 'valid.txt'), ordered=False, add_double_eos=True)
             self.test  = self.vocab.encode_file(
                 os.path.join(path, 'test.txt'), ordered=False, add_double_eos=True)
-
+    
+    #加载训练数据时调用
     def get_iterator(self, split, *args, **kwargs):
         if split == 'train':
             if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8']:
@@ -232,17 +259,25 @@ class Corpus(object):
 
         return data_iter
 
-
+# 进入数据预处理的functon
 def get_lm_corpus(datadir, dataset):
+    # 加载路径，将路径存储为.pt格式的文件
     fn = os.path.join(datadir, 'cache.pt')
+    # 若存在路径，加载预训练好的数据
     if os.path.exists(fn):
         print('Loading cached dataset...')
         corpus = torch.load(fn)
+    # 若不存在路径，开始预处理
     else:
         print('Producing dataset {}...'.format(dataset))
+        # 生成词典
         kwargs = {}
+        # 判断dataset是否为wt103或wt2两个数据集当中
         if dataset in ['wt103', 'wt2']:
+            # 词典添加对应的key和value
+            # <eos> 标志符：读完一行需要加一个eos标志符
             kwargs['special'] = ['<eos>']
+            # 是否转变大小写
             kwargs['lower_case'] = False
         elif dataset == 'ptb':
             kwargs['special'] = ['<eos>']
@@ -253,8 +288,9 @@ def get_lm_corpus(datadir, dataset):
             kwargs['vocab_file'] = os.path.join(datadir, '1b_word_vocab.txt')
         elif dataset in ['enwik8', 'text8']:
             pass
-
+        # Corpus预处理
         corpus = Corpus(datadir, dataset, **kwargs)
+        # 存储
         torch.save(corpus, fn)
 
     return corpus

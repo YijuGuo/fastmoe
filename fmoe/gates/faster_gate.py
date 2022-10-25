@@ -34,6 +34,7 @@ class FasterGate(NaiveGate):
     def __init__(self, d_model, n_expert, world_size, node_rank):
         super().__init__(d_model, n_expert, world_size, top_k=2)
         self.ne_per_node = nw_per_node * n_expert
+        # ogn_ratio?
         self.ogn_ratio = .14
         try:
             self.ogn_ratio = float(os.environ['FMOE_TOPO_OUTGOING_FRACTION'])
