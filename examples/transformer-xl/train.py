@@ -84,9 +84,10 @@ parser.add_argument('--batch_chunk', type=int, default=1,
                     #将批处理分成若干块以节省内存
 parser.add_argument('--tgt_len', type=int, default=70,
                     help='number of tokens to predict')
+                    # 预测的token的数量
 parser.add_argument('--eval_tgt_len', type=int, default=50,
                     help='number of tokens to predict for evaluation')
-                    #要预测的token的数量
+                    #要评估的token的数量
 parser.add_argument('--ext_len', type=int, default=0,
                     help='length of the extended context')
                     #延长的上下文的长度
@@ -223,17 +224,19 @@ device = torch.device('cuda' if args.cuda else 'cpu')
 # Load data
 ###############################################################################
 # 数据处理：1.读取语料 2.构建词表 3.将token转换成index
+# 通过get_lm_corpus函数加载生成Corpus类
 corpus = get_lm_corpus(args.data, args.dataset)
+# ntokens对应词典里面的个数
 ntokens = len(corpus.vocab)
 args.n_token = ntokens
 
 eval_batch_size = 10
 # 生成bach,分批训练
+# batchsize = 60
+# tgt_len: 表示所要预测的length，预设 70
+# ext_len: 设置为0
 tr_iter = corpus.get_iterator('train', args.batch_size, args.tgt_len,
     device=device, ext_len=args.ext_len)
-    # batchsize
-    # tgt_len: 表示所要预测的length 150
-    # ext_len
 va_iter = corpus.get_iterator('valid', eval_batch_size, args.eval_tgt_len,
     device=device, ext_len=args.ext_len)
 te_iter = corpus.get_iterator('test', eval_batch_size, args.eval_tgt_len,

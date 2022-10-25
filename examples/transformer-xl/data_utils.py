@@ -14,25 +14,41 @@ class LMOrderedIterator(object):
             data -- LongTensor -- the LongTensor is strictly ordered
         """
 
-        # bsz = 60
+        # bsz batch size = 60
         self.bsz = bsz
-        # bptt = 150
+        # bptt target lenth= 150
+        # 如果用一个批次处理完所有的数据，以训练数据为例，每个句子长度高达1720450
+        # 显然是不科学的，因此需要限定每个批次中的句子长度允许的最大值bptt
         self.bptt = bptt
         # ext_len = 0 
         self.ext_len = ext_len if ext_len is not None else 0
-
+        # 判断机器是cpu还是gpu
         self.device = device
 
-        # n_step = 1720450
+        # data.size(0) = 一亿，
+        # n_step = 一亿/60 = 1720450
         # Work out how cleanly we can divide the dataset into bsz parts.
+        # 取整数得到一个nbatch代表需要多少次batch后能够遍历完所有数据
         self.n_step = data.size(0) // bsz
 
-        # 把data变成含有一亿个token的向量
+        # 修剪掉任何不能整齐排列的多余元素
         # Trim off any extra elements that wouldn't cleanly fit (remainders).
+        # data = tensor:narrow(dim, index, size) 
+        # 表示取出tensor中第dim维上索引从index开始到index+size-1的所有元素存放在data中 
+        # 第一个参数是代表横轴删除还是纵轴删除, 0为横轴，1为纵轴
+        # 第二个和第三个参数代表保留开始轴到结束轴的数值.类似于切片
+        # 使用narrow方法对不规整的剩余数据删除
         data = data.narrow(0, 0, self.n_step * bsz)
 
         # Evenly divide the data across the bsz batches.
-        #变形为[1720450,60]
+        # 将数据均匀地划分到各批次的bsz中
+        # 使用view方法对data进行矩阵变换
+        # 因为会做转置操作, 因此矩阵的形状是[None, bsz]
+        # view方法没有拷贝新的张量，没有开辟新的内存，与原张量共享内存
+        # view方法重新定义访问张量的规则，使取出的张量按照我们所希望的形状展现
+        # contiguous()：断开这两个变量之间的依赖
+        # 调用contiguous()时，会强制拷贝一份tensor
+        # 让它的布局和从头创建的一模一样，但是两个tensor完全没有联系
         self.data = data.view(bsz, -1).t().contiguous().to(device)
 
         # Number of mini-batches
@@ -41,18 +57,26 @@ class LMOrderedIterator(object):
     def get_batch(self, i, bptt=None):
         if bptt is None: bptt = self.bptt
         # seq_len = bptt
+        # 首先我们确定句子长度, 它将是在bptt和len(source) - 1 - i中最小值
+        # 实质上, 前面的批次中都会是bptt的值, 只不过最后一个批次中, 句子长度
+        # 可能不够bptt的60个, 因此会变为len(source) - 1 - i的值
+        # seq_len = bptt = 152
         seq_len = min(bptt, self.data.size(0) - 1 - i)
 
-        # i最开始传入时，为0（152/300、146）
+        # i = 0+152 
         end_idx = i + seq_len
-        #（152）
+        # begin_idx = 0
         beg_idx = max(0, i - self.ext_len)
 
-        # 对self.data截取，对第一个维度截取
-        # 对行进行截取，列向量不变
-        # [152,60]
+        # 对self.data截取，从begin_idx截取到end_idx
+        # 仅对行进行截取，列向量不变
+        # 截取出来的维度为[152,60]
+        # 语言模型训练的源数据的第i批数据将是batchify的结果的切片[i:i+seq_len]
         data = self.data[beg_idx:end_idx]
+
         # [152,60]
+        # target从第1行开始截取，data从第0行开始截取
+        # 根据语言模型训练的语料规定, 它的目标数据是源数据向后移动一位
         target = self.data[i+1:i+1+seq_len]
 
         return data, target, seq_len
@@ -67,17 +91,19 @@ class LMOrderedIterator(object):
         i = start
         while True:
             # bptt = 150
+            # 如果random小于0.95，bptt等于默认值，反之则bptt = bptt/2
             bptt = self.bptt if np.random.random() < 0.95 else self.bptt / 2.
-            # bptt = 152/148/146, std = 5
-            # random函数导致结果会不一样
+            # random(bptt = 152/148/146, std = 5) 与 min_len = 5 取max
+            # 再与max_len比较取较小的结果
+            # random函数导致结果不一样
             bptt = min(max_len, max(min_len, int(np.random.normal(bptt, std))))
+            # 通过get_batch方法获取数据
             data, target, seq_len = self.get_batch(i, bptt)
-            # seq_len加到i上
+            # seq_len加到i上，index后移到下一个需要处理的句子的首个单词的位置
             i += seq_len
-            # yield函数：跳出循环，送入模型中训练
-            # 从yield函数开始执行
+            # yield函数：跳出循环，获取到第一个批次的数据送入模型训练
             yield data, target, seq_len
-            # 判断i是否大于等于1000
+            # 判断i是否大于等于data总长度
             if i >= self.data.size(0) - 2:
                 break
 
@@ -246,15 +272,18 @@ class Corpus(object):
     def get_iterator(self, split, *args, **kwargs):
         if split == 'train':
             if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8']:
+                # LMorderedIterator 将数据整理成batch的格式
                 data_iter = LMOrderedIterator(self.train, *args, **kwargs)
             elif self.dataset == 'lm1b':
                 kwargs['shuffle'] = True
+                # LMMultiFileIterator
                 data_iter = LMMultiFileIterator(self.train, self.vocab, *args, **kwargs)
         elif split in ['valid', 'test']:
             data = self.valid if split == 'valid' else self.test
             if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8']:
                 data_iter = LMOrderedIterator(data, *args, **kwargs)
             elif self.dataset == 'lm1b':
+                # LMShuffledIterator
                 data_iter = LMShuffledIterator(data, *args, **kwargs)
 
         return data_iter

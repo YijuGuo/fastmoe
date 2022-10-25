@@ -12,6 +12,7 @@ sys.path.append('utils')
 from proj_adaptive_softmax import ProjectedAdaptiveLogSoftmax, Projection
 from log_uniform_sampler import LogUniformSampler, sample_logits
 
+# Transformer中的positional encoding
 class PositionalEmbedding(nn.Module):
     def __init__(self, demb):
         super(PositionalEmbedding, self).__init__()
@@ -456,6 +457,7 @@ class RelLearnableDecoderLayer(nn.Module):
 
         return output
 
+# 相当于transformer里面的sublayer
 class RelPartialLearnableDecoderLayer(nn.Module):
     def __init__(self, n_head, d_model, d_head, d_inner, dropout,
                  **kwargs):
@@ -555,14 +557,17 @@ class MemTransformerLM(nn.Module):
                  same_length=False, attn_type=0, clamp_len=-1,
                  sample_softmax=-1, moe=False, moe_num_expert=64, moe_top_k=2):
         super(MemTransformerLM, self).__init__()
+        # n_token 词典中token的个数
         self.n_token = n_token
-
+        # d_embed = d_model = 410 词向量的维度
         d_embed = d_model if d_embed is None else d_embed
         self.d_embed = d_embed
         self.d_model = d_model
+        # 多头注意力机制的个数
         self.n_head = n_head
         self.d_head = d_head
 
+        # embedding 
         self.word_emb = AdaptiveEmbedding(n_token, d_embed, d_model, cutoffs,
                                           div_val=div_val)
 
@@ -570,15 +575,21 @@ class MemTransformerLM(nn.Module):
 
         self.n_layer = n_layer
 
+        # tgt_len 需要predict的token的数据
         self.tgt_len = tgt_len
+        # mem_len memory的长度 150
         self.mem_len = mem_len
+        # ext_len 是extended content的长度 0
         self.ext_len = ext_len
         self.max_klen = tgt_len + ext_len + mem_len
 
+        # 定义模型的类型，0表示trans-xl
         self.attn_type = attn_type
-
+        
+        # 装载具体的layer
         self.layers = nn.ModuleList()
         if attn_type == 0: # the default attention
+            # 循环n_layer次
             for i in range(n_layer):
                 self.layers.append(
                     RelPartialLearnableDecoderLayer(
@@ -616,11 +627,13 @@ class MemTransformerLM(nn.Module):
 
         # use adaptive softmax (including standard softmax)
         else:
+            # 使用Adaptive softmax
             self.crit = ProjectedAdaptiveLogSoftmax(n_token, d_embed, d_model,
                                                     cutoffs, div_val=div_val)
-
+            # transformer decoder后需要接线性层，设置word embedding的参数和线性层的参数一样
             if tie_weight:
                 for i in range(len(self.crit.out_layers)):
+                    # 使得模型的参数量减少，加快模型的训练速度
                     self.crit.out_layers[i].weight = self.word_emb.emb_layers[i].weight
 
             if tie_projs:
