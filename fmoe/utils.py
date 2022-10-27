@@ -16,6 +16,9 @@ def get_torch_default_comm():
     communicator out from the object. As PyTorch's private interface varies from
     time to time, different hacking techniques are tried one-by-one to be
     compatible with various versions of PyTorch.
+
+    NCCL通信器: 以便Fast MoE可以在C代码中执行定制的C代码中的通信操作。
+
     """
     try:
         comm = dist.distributed_c10d._get_default_group()

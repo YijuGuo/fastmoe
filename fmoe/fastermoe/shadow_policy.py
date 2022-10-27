@@ -16,9 +16,13 @@ def global_policy(local_expert_count, _gec, num_expert, world_size):
     * `bw_net`: bandwidth of the network (GBps)
     * `bw_mm`: computation throughput of performing GeMM (FLOPs)
     """
+    # 网络的带宽（GBps）
     bw_net = float_from_env('FMOE_FASTER_GLBPLC_NETBW', 50 * 1e9 / 8)
+    # 执行GeMM的计算吞吐量（FLOPs)
     bw_mm = float_from_env('FMOE_FASTER_GLBPLC_GPUTP', 11.5e12)
+    # MLP的隐向量的大小`d_model`的比率
     alpha = float_from_env('FMOE_FASTER_GLBPLC_ALPHA', 2)
+    # MLP输入和输出的特征长度
     d_model = float_from_env('FMOE_FASTER_GLBPLC_DMODEL', 2048)
 
     moe_group = get_moe_group()

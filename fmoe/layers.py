@@ -1,7 +1,7 @@
 r"""
-FMoE core layer
+FMoE core layer 核心层
 """
-import tree
+import tree # 所有tree函数都在嵌套的树状结构上运行
 import os
 import torch
 import torch.nn as nn
@@ -18,10 +18,11 @@ def mark_module_parallel_comm(module, comm):
     r"""
     Mark all parameters in `module` as doing data parallel in `comm`, where
     `comm` may be one of `'world', 'dp', 'none'`.
-
-    将`module`中的所有参数标记为在`comm`中进行数据并行
+    在`module`中标记所有在`comm`中进行数据并行的参数
+    comm 可以是'world', 'dp', 'none'"之一。
     """
     for p in module.parameters():
+        # 设置属性“dp_comm”的值为comm
         setattr(p, "dp_comm", comm)
 
 
@@ -38,11 +39,10 @@ def _fmoe_general_global_forward(inp, gate, expert_fn, num_expert, world_size, *
     function.
 
     * 计算从每个worker到每个expert的token的数量。
-    * 将features发送到它们的target position,
-       以便每个专家的输入特征在内存中是连续的。
+    * 将features发送到它们的target position,以便每个专家的输入特征在内存中是连续的。
     * 使用`expert_fn'进行专家的 forward computation。
     * 将专家的输出特征收集回来，并将其作为句子重新排序。
-      中间的结果，如专家的数量，通过这个函数对用户隐藏。函数隐藏起来。
+      中间的结果，如专家的数量，通过这个函数对用户隐藏。
 
     """
     (
@@ -50,7 +50,8 @@ def _fmoe_general_global_forward(inp, gate, expert_fn, num_expert, world_size, *
         local_expert_count,
         # 拥有n_expert * world_size个数据的Tensor，用于表示有多少数据接收。
         global_expert_count, 
-        # 拥有n_expert * world_size个数据的Tensor，用于表示有多少数据发送
+        # 拥有n_expert * world_size个数据的Tensor，用于表示有多少数据发送。
+
         # global_gather根据global_count将x的数据收集到n_expert * world_size个expert，
         # 然后根据local_count接收数据
         # 其中expert是用户定义的专家网络，
@@ -60,27 +61,31 @@ def _fmoe_general_global_forward(inp, gate, expert_fn, num_expert, world_size, *
         fwd_batch_size,
     ) = prepare_forward(gate, num_expert, world_size)
     topk = 1
-    if len(gate.shape) == 2:
-        topk = gate.shape[1]
+    if len(gate.shape) == 2: # 如果gate为二维张量
+        topk = gate.shape[1] #shape[0]代表行数，shape[1]代表列数
 
+    # scatter_function：调用MOEScatter函数，将token分散到对应的expert
     def scatter_func(tensor):
         return MOEScatter.apply(
             tensor,
             torch.div(pos, topk, rounding_mode='floor'),
+            # 逐元素除法
             local_expert_count,
             global_expert_count,
             fwd_batch_size,
             world_size,
         )
-
+    # 将features发送到它们的target position,以便每个专家的输入特征在内存中是连续的
     x = tree.map_structure(scatter_func, inp)
-
+    # forward computation
     x = expert_fn(x, fwd_expert_count)
 
     out_batch_size = tree.flatten(inp)[0].shape[0]
     if len(gate.shape) == 2:
         out_batch_size *= gate.shape[1]
 
+    # gather_fuction：调用MOEGather函数
+    # 从连续的单独专家那里收集输出样本，回到[batch x sequences]
     def gather_func(tensor):
         return MOEGather.apply(
             tensor,
@@ -90,7 +95,7 @@ def _fmoe_general_global_forward(inp, gate, expert_fn, num_expert, world_size, *
             out_batch_size,
             world_size,
         )
-
+    # reorder the output features of experts
     outp = tree.map_structure(gather_func, x)
     return outp
 
@@ -121,6 +126,7 @@ class FMoE(nn.Module):
     """
 
     """
+    通用的MoE实现, 支持任意的模块作为专家
     num_expert: 代表每个worker对应的expert数量
     world_size: 表示worker的总数, 即机器的数量
     slice_group: torch的通信组, 表示特定的模型并行应用于整个组，
@@ -170,8 +176,9 @@ class FMoE(nn.Module):
             self.slice_rank = self.slice_group.rank()
 
         self.top_k = top_k
+        # expert初始化
         if type(expert) is list:
-            self.experts = nn.ModuleList([e(d_model) for e in expert])
+            self.experts = nn.ModuleList([e(d_model) for e in expert])        
             self.experts_fused = False
             self.num_expert = num_expert = len(expert)
         elif expert is not None:
@@ -191,22 +198,32 @@ class FMoE(nn.Module):
         The default expert function which either calls the experts as a whole
         or as separate experts.
 
-        可以将专家当作整体调用或者调用单个专家
+        可以将expert当作整体调用或者调用单个专家
         """
+        #将expert当作整体调用
         if self.experts_fused:
             return self.experts(inp, fwd_expert_count)
+        # 如果fwd_expert_count是CUDA tensor的形式，需要改成numpy的数据格式
+        # 
         if isinstance(fwd_expert_count, torch.Tensor):
-            fwd_expert_count = fwd_expert_count.cpu().numpy()
+            fwd_expert_count = fwd_expert_count.cpu().numpy() 
+            # CUDA tensor格式的数据改成numpy
+            # numpy不能读取CUDA tensor 需要将它转化为 CPU tensor
         outputs = []
         base_idx = 0
         for i in range(self.num_expert):
+            # fwd_expert_count存储每个expert对应的batch_size
             batch_size = fwd_expert_count[i]
+            # input按照batchsize选取
             inp_slice = inp[base_idx : base_idx + batch_size]
+            # 得到output
             outputs.append(self.experts[i](inp_slice))
+            # 下一个batch
             base_idx += batch_size
+        # 将每个outputs拼接
         return torch.cat(outputs, dim=0)
 
-    def mark_parallel_comm(self, expert_dp_comm="none"):
+    def mark_parallel_comm(self, expert_dp_comm="none"):  
         r"""
         Automatically mark the data parallel comms of the parameters within the
         module. This can be typically called at the end of the __init__ function
@@ -216,6 +233,7 @@ class FMoE(nn.Module):
         """
         if self.experts is not None:
             comm = expert_dp_comm
+            # 判断experts是否是list
             if isinstance(self.experts, list):
                 for e in self.experts:
                     mark_module_parallel_comm(e, comm)
@@ -229,10 +247,11 @@ class FMoE(nn.Module):
         according to the gate.  The score of the selected gate given by the
         expert is multiplied to the experts' output tensors as a weight.
 
-        FMoE模块首先计算门的输出，然后根据门的情况进行MoE前进。 
+        FMoE module首先计算gate output,然后根据门的情况计算MoE forward。 
         专家给出的所选门的分数被乘以专家的输出张量作为权重。
         """
 
+        # MoE input 的 batch_size
         moe_inp_batch_size = tree.flatten(
             tree.map_structure(lambda tensor: tensor.shape[0], moe_inp)
         )
@@ -246,8 +265,9 @@ class FMoE(nn.Module):
             def ensure_comm_func(tensor):
                 # 判断多显卡之间是否可以进行交互
                 ensure_comm(tensor, self.moe_group)
-
+            # 判断MoE_input是否在多机器间交互
             tree.map_structure(ensure_comm_func, moe_inp)
+        
         if self.slice_size > 1:
 
             def slice_func(tensor):
@@ -258,8 +278,10 @@ class FMoE(nn.Module):
 
             moe_inp = tree.map_structure(slice_func, moe_inp)
 
+        # 计算gate的输出
+        # gate的index和score
         gate_top_k_idx, gate_score = self.gate(moe_inp)
-
+        # gate_hook is True
         if self.gate_hook is not None:
             self.gate_hook(gate_top_k_idx, gate_score, None)
 
@@ -275,6 +297,8 @@ class FMoE(nn.Module):
             moe_inp = tree.map_structure(delete_mask_func, moe_inp)
             gate_top_k_idx = gate_top_k_idx[mask == 0, :]
 
+        # 计算 MoE forward
+        # the output features of experts
         fwd = _fmoe_general_global_forward(
             moe_inp, gate_top_k_idx, self.expert_fn,
             self.num_expert, self.world_size,
@@ -308,6 +332,7 @@ class FMoE(nn.Module):
             def view_func(tensor):
                 dim = tensor.shape[-1]
                 tensor = tensor.view(-1, self.top_k, dim)
+                # view中一个参数定为-1，代表动态调整这个维度上的元素个数，以保证元素的总数不变
                 return tensor
 
             moe_outp = tree.map_structure(view_func, fwd)
@@ -315,7 +340,8 @@ class FMoE(nn.Module):
         gate_score = gate_score.view(-1, 1, self.top_k)
 
         def bmm_func(tensor):
-            dim = tensor.shape[-1]
+            dim = tensor.shape[-1] # shape[-1]表示列数
+            # 按照列数dim, reshape
             tensor = torch.bmm(gate_score, tensor).reshape(-1, dim)
             return tensor
 

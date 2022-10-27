@@ -15,6 +15,7 @@ def get_expert_params(e, out):
 
 def stash_expert_params(e, params):
     if not hasattr(e, 'expert_param_stash'):
+        # setattr 用于设置属性值，该属性不一定是存在的
         setattr(e, 'expert_param_stash', dict())
     offset = 0
     for n, p in e.named_parameters():
@@ -27,6 +28,8 @@ def stash_expert_params(e, params):
 
 
 def pop_expert_params(e):
+    # hasattr() 函数用于判断对象是否包含对应的属性
+    # 如果对象有该属性返回 True，否则返回 False
     if not hasattr(e, 'expert_param_stash'):
         return
     if not e.expert_param_stash:

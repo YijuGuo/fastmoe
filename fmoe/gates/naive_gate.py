@@ -27,13 +27,15 @@ class NaiveGate(BaseGate):
         r"""
         The naive implementation simply calculates the top-k of a linear layer's
         output.
+
+        简单计算线性层输出的top k
         """
         gate = self.gate(inp)
         gate_top_k_val, gate_top_k_idx = torch.topk(
             gate, k=self.top_k, dim=-1, largest=True, sorted=False
         )  # [.. x top_k]
         gate_top_k_val = gate_top_k_val.view(-1, self.top_k)
-
+        # B×L = batchsize × sequence length
         # (BxL) x 1 x top_k
         gate_score = F.softmax(gate_top_k_val, dim=-1)
 

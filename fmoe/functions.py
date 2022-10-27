@@ -32,7 +32,7 @@ def count_by_gate(gate, num_expert, world_size, require_pos=True):
     # gate 门
     # num_expert 每张卡拥有的专家网络数目
     # world_size 运行网络的显卡数目，例如两台机器一起训练则 world_size=2
-    # 将数据分发到n_expert * world_size个expert
+    # 将数据分发到n_expert * world_size 个expert
     with torch.no_grad():
         local_expert_count = torch.zeros(
             num_expert * world_size, device=gate.device, dtype=torch.int32
@@ -50,34 +50,39 @@ def count_by_gate(gate, num_expert, world_size, require_pos=True):
         if not require_pos:
             pos = None
         else:
+            # 求列的累加值
             lec_cum = torch.cumsum(local_expert_count, dim=0).int()
+            # 下标为-1表示输出数组的最后一行数据值
+            # 一个元素张量可以用x.item()得到元素值
             pos_size = lec_cum[-1].item()
             pos = torch.empty((pos_size,), device=gate.device, dtype=torch.long)
             fmoe_cuda.assign_pos(lec_cum, gate, pos)
-    # 返回地址、本地expert数量、全局expert数量
+    # 返回地址、local expert数量、全局expert数量
     return pos, local_expert_count, global_expert_count
 
 
 def prepare_forward(gate, num_expert, world_size):
     r"""
     Prepare necessary information from gate output for MoE computation.
-    为MoE计算准备来自门输出的必要信息。
+    为MoE计算准备来自gate output的必要信息。
     Args:
         gate: a 1-d Long Tensor representing the target expert of each input
         sample.
         num_expert: number of experts on each worker.
         world_size: number of workers that hold different experts.
         comm: the communicator of all workers in the expert-parallel group.
-        gate: 代表每个输入样本的目标专家的1-d Long Tensor。
+        gate: 代表每个输入样本的target expert的1-d Long Tensor。
         num_expert: 每个worker上的expert数量。
-        world_size: 持有不同expert的worker的数量。
-        comm:专家并行组中所有worker间的通讯器。
+        world_size: 持有不同的expert的worker的数量。
+        comm:专家并行组expert-parallel group 中所有worker间的通讯器。
     """
     pos, local_expert_count, global_expert_count = count_by_gate(gate, 
             num_expert, world_size)
     with torch.no_grad():
+        # 根据world_size计算expert的数量
         fwd_expert_count = global_expert_count.view(world_size,
                 num_expert).sum(dim=0)
+        # 按0轴计算expert的总和
         fwd_batch_size = int(fwd_expert_count.sum().item())
     return (
         pos,
@@ -110,13 +115,16 @@ class MOEScatter(Function):
     scattered, and then exchanged across workers.
 
     将[batch x sequences]中的输入样本分散到连续的单独专家。
-    如果“world_size”大于1,样本首先在本地被分散,然后在worker之间进行交换
+    如果“world_size”大于1,样本首先在local被分散,然后在worker之间进行交换
+    local_scatter: 分散到worker内部的expert之间
+    global_scatter: worker之间的expert之间分散
+
     """
 
     @staticmethod
     def forward(
-        ctx,
-        inp,
+        ctx,   #？
+        inp,   # input
         pos,
         local_expert_count,
         global_expert_count,
@@ -125,6 +133,7 @@ class MOEScatter(Function):
     ):
         local_input_buf = _local_scatter(inp, pos)
         if world_size > 1:
+            # global_input_buffer缓冲区
             global_input_buf = fmoe_cuda.global_scatter(
                 local_input_buf,
                 local_expert_count,
@@ -162,8 +171,7 @@ class MOEGather(Function):
     Gather output samples from contiguous alone experts back to [batch x
     sequences]. Works symmetrically with MOEScatter.
 
-    从连续的单独专家那里收集输出样本，回到[batch x
-    sequences]
+    从连续的单独专家那里收集输出样本，回到[batch x sequences]
 
     """
 
