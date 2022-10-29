@@ -409,6 +409,41 @@ class CustomizedMoEPositionwiseFF(FMoETransformerMLP):
 
         return output
 
+class Miao():
+    workers = []
+
+    def _init_(self, d_model, d_inner, dropout, pre_lnorm=False):
+
+        for i in range([1,2,4,8]):
+            self.workers.append(CustomizedMoEPositionwiseFF(self, d_model, d_inner, dropout, pre_lnorm,moe_num_expert = i, moe_top_k = 1))
+
+    def getForeachWorkers(self, __name):
+        def _(*arg):
+            returns = []
+            for r in self.workers:
+                returns.append(getattr(r, __name)(*arg))
+            
+            if returns[0] != None:
+                result = returns[0]
+                while returns.__len__() > 0:
+                    result += returns.pop()
+
+                return result 
+
+        return _
+
+    def __getattr__(self, __name):
+       return self.getForeachWorkers(__name)
+
+    def __call__(self):
+        return self.getForeachWorkers("__call__")()
+    
+    def forward(self, inp):
+        output = []
+        for worker in self.workers:
+            output += worker.forward(inp)
+        return output
+        
 class DecoderLayer(nn.Module):
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(DecoderLayer, self).__init__()
@@ -418,10 +453,9 @@ class DecoderLayer(nn.Module):
             self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
                                         pre_lnorm=kwargs.get('pre_lnorm'))
         else:
-            self.pos_ff = CustomizedMoEPositionwiseFF(d_model, d_inner, dropout,
+            self.pos_ff = Miao(d_model, d_inner, dropout,
                                         pre_lnorm=kwargs.get('pre_lnorm'), 
-                                        moe_num_expert=kwargs.get('moe_num_expert'),
-                                        moe_top_k=kwargs.get('moe_top_k'))
+                                        )
 
     def forward(self, dec_inp, dec_attn_mask=None, mems=None):
 
@@ -443,10 +477,9 @@ class RelLearnableDecoderLayer(nn.Module):
             self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
                                         pre_lnorm=kwargs.get('pre_lnorm'))
         else:
-            self.pos_ff = CustomizedMoEPositionwiseFF(d_model, d_inner, dropout,
+            self.pos_ff = Miao(d_model, d_inner, dropout,
                                         pre_lnorm=kwargs.get('pre_lnorm'),
-                                        moe_num_expert=kwargs.get('moe_num_expert'),
-                                        moe_top_k=kwargs.get('moe_top_k'))
+                                        )
 
     def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None, mems=None):
 
@@ -470,10 +503,9 @@ class RelPartialLearnableDecoderLayer(nn.Module):
             self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
                                         pre_lnorm=kwargs.get('pre_lnorm'))
         else:
-            self.pos_ff = CustomizedMoEPositionwiseFF(d_model, d_inner, dropout,
+            self.pos_ff = Miao(d_model, d_inner, dropout,
                                         pre_lnorm=kwargs.get('pre_lnorm'),
-                                        moe_num_expert=kwargs.get('moe_num_expert'),
-                                        moe_top_k=kwargs.get('moe_top_k'))
+                                        )
 
     def forward(self, dec_inp, r, r_w_bias, r_r_bias, dec_attn_mask=None, mems=None):
 
